@@ -26,7 +26,7 @@ table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}th,td{pa
 </style>
 </head>
 <body>
-<header>THA Stem CFR Measurement Tool <span class="small">v1.9 Guided</span></header>
+<header>THA Stem CFR Measurement Tool <span class="small">v1.10 Guided</span></header>
 <div class="wrap">
 <section class="card controls">
 <div class="row">
@@ -193,7 +193,17 @@ cv.addEventListener('pointerup',()=>dragPoint=null);
 document.getElementById("nudgeUp").onclick=()=>moveSelected(0,-5);document.getElementById("nudgeDown").onclick=()=>moveSelected(0,5);document.getElementById("nudgeLeft").onclick=()=>moveSelected(-5,0);document.getElementById("nudgeRight").onclick=()=>moveSelected(5,0);
 document.addEventListener("keydown",e=>{if(!selectedPoint)return;if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.key)){e.preventDefault();const s=e.shiftKey?25:5;if(e.key==="ArrowUp")moveSelected(0,-s);if(e.key==="ArrowDown")moveSelected(0,s);if(e.key==="ArrowLeft")moveSelected(-s,0);if(e.key==="ArrowRight")moveSelected(s,0)}});
 function data(){return levels.map((l,i)=>{const m=measurements[i]||{},c=(m.canal||[]).filter(Boolean),s=(m.stem||[]).filter(Boolean);return c.length===2&&s.length===2?100*dist(...s)/dist(...c):null})}
-document.getElementById('csvBtn').onclick=()=>{const id=(document.getElementById('caseId').value||"case").replace(/[^\w\-]/g,"_"),r=data(),ratios=[r[0]&&r[3]?r[0]/r[3]:null,r[1]&&r[3]?r[1]/r[3]:null,r[2]&&r[3]?r[2]/r[3]:null],dorr=document.getElementById("dorrValue").value,ci=updateCI();let csv="CaseID,Visual_Dorr,CI_D_mm,CI_M_mm,CI,CI_based_class,AP_CFR_LTplus2_pct,AP_CFR_LT_pct,AP_CFR_LTminus2_pct,AP_CFR_LTminus7_pct,Ratio_LTplus2_LTminus7,Ratio_LT_LTminus7,Ratio_LTminus2_LTminus7\n";csv+=[id,dorr,ci.D?.toFixed(2)||"",ci.M?.toFixed(2)||"",ci.ci?.toFixed(4)||"",ci.cls,...r.map(x=>x?.toFixed(2)||""),...ratios.map(x=>x?.toFixed(4)||"")].join(",");const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download=id+"_CFR_CI.csv";a.click()};
+function missingCsvFields(){
+ const missing=[];
+ if(!document.getElementById("caseId").value.trim())missing.push("症例ID");
+ if(!document.getElementById("dorrValue").value)missing.push("Dorr分類");
+ if(!(ltPts.length===2&&+ltMm.value>0&&scale))missing.push("LT実測幅");
+ if(d7Pts.filter(Boolean).length!==2)missing.push("LT−7 cm基準点");
+ const r=data();levels.forEach((l,i)=>{if(r[i]==null||!Number.isFinite(r[i]))missing.push(l.name+" CFR")});
+ const ci=updateCI();if(!(ci.D>0))missing.push("CI 外径D");if(!(ci.M>0))missing.push("CI 髄腔内径M");if(ci.ci==null||!Number.isFinite(ci.ci))missing.push("CI");
+ return missing;
+}
+document.getElementById('csvBtn').onclick=()=>{const missing=missingCsvFields();if(missing.length){statusEl.textContent="CSV保存できません。未入力："+missing.join("、");guide("未入力データを完成してください");return;}const id=document.getElementById('caseId').value.trim().replace(/[^\w\-]/g,"_"),r=data(),ratios=[r[0]&&r[3]?r[0]/r[3]:null,r[1]&&r[3]?r[1]/r[3]:null,r[2]&&r[3]?r[2]/r[3]:null],dorr=document.getElementById("dorrValue").value,ci=updateCI();let csv="CaseID,Visual_Dorr,CI_D_mm,CI_M_mm,CI,CI_based_class,AP_CFR_LTplus2_pct,AP_CFR_LT_pct,AP_CFR_LTminus2_pct,AP_CFR_LTminus7_pct,Ratio_LTplus2_LTminus7,Ratio_LT_LTminus7,Ratio_LTminus2_LTminus7\n";csv+=[id,dorr,ci.D?.toFixed(2)||"",ci.M?.toFixed(2)||"",ci.ci?.toFixed(4)||"",ci.cls,...r.map(x=>x?.toFixed(2)||""),...ratios.map(x=>x?.toFixed(4)||"")].join(",");const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download=id+"_CFR_CI.csv";a.click()};
 document.getElementById('pngBtn').onclick=()=>{const id=(document.getElementById('caseId').value||"case").replace(/[^\w\-]/g,"_"),a=document.createElement("a");a.href=cv.toDataURL("image/png");a.download=id+"_CFR_CI_measured.png";a.click()};
 document.querySelectorAll(".dorrBtn").forEach(b=>b.onclick=()=>{document.getElementById("dorrValue").value=b.dataset.dorr;document.querySelectorAll(".dorrBtn").forEach(x=>x.classList.toggle("active",x===b))});document.getElementById("dorrClear").onclick=()=>{document.getElementById("dorrValue").value="";document.querySelectorAll(".dorrBtn").forEach(x=>x.classList.remove("active"))};
 updateTable();updateCI();applyZoom();refreshGuide();
