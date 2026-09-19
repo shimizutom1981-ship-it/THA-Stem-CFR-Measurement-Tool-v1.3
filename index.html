@@ -104,7 +104,7 @@ function lineEnds(c,len=90){if(!axis)return null;let n={x:-axis.v.y,y:axis.v.x};
 function draw(){
  if(!img.src)return; cv.width=img.naturalWidth;cv.height=img.naturalHeight;ctx.drawImage(img,0,0);
  ctx.lineWidth=Math.max(2,cv.width/700);ctx.font=`${Math.max(14,cv.width/60)}px sans-serif`;
- function dots(ps,color){ctx.fillStyle=color;ps.forEach(p=>{ctx.beginPath();ctx.arc(p.x,p.y,6,0,Math.PI*2);ctx.fill()})}
+ function dots(ps,color){ctx.fillStyle=color;ps.forEach(p=>{ctx.beginPath();ctx.arc(p.x,p.y,Math.max(12,cv.width/90),0,Math.PI*2);ctx.fill()})}
  dots(ltPts,"#38bdf8");dots(d7Pts,"#f59e0b");
  if(axis){
    ctx.strokeStyle="#22c55e";ctx.setLineDash([10,8]);ctx.beginPath();ctx.moveTo(axis.o.x-axis.v.x*5000,axis.o.y-axis.v.y*5000);ctx.lineTo(axis.o.x+axis.v.x*5000,axis.o.y+axis.v.y*5000);ctx.stroke();ctx.setLineDash([]);
