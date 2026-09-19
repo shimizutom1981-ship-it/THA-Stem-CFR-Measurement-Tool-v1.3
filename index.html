@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
-<title>THA Stem CFR Measurement Tool v1.0</title>
+<title>THA Stem CFR Measurement Tool v1.13</title>
 <style>
 :root{--bg:#0f172a;--card:#1e293b;--line:#334155;--text:#f8fafc;--muted:#94a3b8;--accent:#38bdf8}
 *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
@@ -26,7 +26,7 @@ table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}th,td{pa
 </style>
 </head>
 <body>
-<header>THA Stem CFR Measurement Tool <span class="small">v1.12 Guided</span></header>
+<header>THA Stem CFR Measurement Tool <span class="small">v1.13 Head Calibration</span></header>
 <div class="wrap">
 <section class="card controls">
 <div class="row">
@@ -45,8 +45,7 @@ table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}th,td{pa
 </div>
 <div class="small">画像を読み込むと測定が自動で始まります。画面の「次に打つ点」に従って、1点ずつ順番に指定してください。</div>
 <div id="guide" class="status" style="font-size:17px;font-weight:700;border:2px solid #38bdf8">次に打つ点：画像を読み込んでください。</div>
-<label>LTレベルの実測 endosteal canal width (mm)</label>
-<div class="row"><input id="ltMm" type="number" min="0.1" step="0.1" placeholder="LTの左右皮質内側を指定後に入力" style="flex:1"><button id="ltMmConfirm" class="primary" disabled>この値で決定</button></div>
+<div class="status"><strong>校正：</strong>全例32 mm人工骨頭。骨頭辺縁を3点指定すると円を自動フィットし、32 mmを基準に画像スケールを自動校正します。</div>
 <div class="row"><button id="undoBtn">1点戻す</button><button id="resetBtn">最初からやり直す</button></div>
 <div id="status" class="status">画像を読み込んでください。</div>
 
@@ -85,10 +84,11 @@ table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}th,td{pa
 </div>
 <script>
 const cv=document.getElementById('cv'),ctx=cv.getContext('2d'),file=document.getElementById('file'),cameraFile=document.getElementById('cameraFile');
-const statusEl=document.getElementById('status'),guideEl=document.getElementById('guide'),ltMm=document.getElementById('ltMm'),stageWrap=document.getElementById('stageWrap');
+const statusEl=document.getElementById('status'),guideEl=document.getElementById('guide'),stageWrap=document.getElementById('stageWrap');
+const HEAD_DIAMETER_MM=32;
 const levels=[{name:"LT+2cm",mm:20},{name:"LT",mm:0},{name:"LT-2cm",mm:-20},{name:"LT-7cm",mm:-70}];
-let img=new Image(),ltPts=[],d7Pts=[],scale=null,axis=null,levelCenters=[],measurements={},ciCenter=null,ciMeasure={D:null,M:null};
-let zoom=1,editMode=false,selectedPoint=null,dragPoint=null,step=0,history=[],waitingScale=false;
+let img=new Image(),headPts=[],headCircle=null,ltPts=[],d7Pts=[],scale=null,axis=null,levelCenters=[],measurements={},ciCenter=null,ciMeasure={D:null,M:null};
+let zoom=1,editMode=false,selectedPoint=null,dragPoint=null,step=0,history=[];
 
 function dist(a,b){return Math.hypot(a.x-b.x,a.y-b.y)}
 function mid(a,b){return{x:(a.x+b.x)/2,y:(a.y+b.y)/2}}
@@ -98,6 +98,18 @@ function applyZoom(){cv.style.width=(zoom*100)+"%";cv.style.height="auto";docume
 function setZoom(z){zoom=Math.max(1,Math.min(4,z));applyZoom()}
 function guide(t){guideEl.textContent="次に打つ点："+t}
 function projectToLine(p,c){if(!axis||!c)return p;const n={x:-axis.v.y,y:axis.v.x};const t=(p.x-c.x)*n.x+(p.y-c.y)*n.y;return{x:c.x+n.x*t,y:c.y+n.y*t}}
+function fitHeadCircle(){
+ if(headPts.length!==3)return false;
+ const [a,b,d]=headPts;
+ const D=2*(a.x*(b.y-d.y)+b.x*(d.y-a.y)+d.x*(a.y-b.y));
+ if(Math.abs(D)<1e-6){headCircle=null;scale=null;return false}
+ const aa=a.x*a.x+a.y*a.y,bb=b.x*b.x+b.y*b.y,dd=d.x*d.x+d.y*d.y;
+ const ux=(aa*(b.y-d.y)+bb*(d.y-a.y)+dd*(a.y-b.y))/D;
+ const uy=(aa*(d.x-b.x)+bb*(a.x-d.x)+dd*(b.x-a.x))/D;
+ const r=Math.hypot(a.x-ux,a.y-uy);
+ if(!Number.isFinite(r)||r<=0){headCircle=null;scale=null;return false}
+ headCircle={x:ux,y:uy,r}; scale=(2*r)/HEAD_DIAMETER_MM; return true;
+}
 function buildAxisFromLT(){
  if(ltPts.length<2||!scale)return false;
  const o=mid(ltPts[0],ltPts[1]);
@@ -127,55 +139,58 @@ function computeAxis(){return d7Pts.length===2?buildFinalAxisFromLTandD7():build
 
 function lineEnds(c,len=90){if(!axis)return null;const n={x:-axis.v.y,y:axis.v.x};return[{x:c.x-n.x*len,y:c.y-n.y*len},{x:c.x+n.x*len,y:c.y+n.y*len}]}
 function currentInstruction(){
- if(waitingScale)return "LTレベルの実測髄腔幅(mm)を入力してください";
- if(step===0)return "LT：画像左側の皮質内側（endosteal cortex）";
- if(step===1)return "LT：画像右側の皮質内側（endosteal cortex）";
- if(step===2)return "骨軸決定用（LT−7 cm付近）：画像左側の皮質内側";
- if(step===3)return "骨軸決定用（LT−7 cm付近）：画像右側の皮質内側";
- if(step>=4&&step<20){const n=step-4,i=Math.floor(n/4),j=n%4;return levels[i].name+"："+["画像左側の皮質内側","画像右側の皮質内側","ステム左縁","ステム右縁"][j]}
- if(step===20)return "CI −10 cm：画像左側の皮質外側（periosteal cortex）";
- if(step===21)return "CI −10 cm：画像右側の皮質外側（periosteal cortex）";
- if(step===22)return "CI −10 cm：画像左側の皮質内側（endosteal cortex）";
- if(step===23)return "CI −10 cm：画像右側の皮質内側（endosteal cortex）";
+ if(step>=0&&step<=2)return "32 mm人工骨頭：辺縁の"+(step+1)+"点目（3点はできるだけ離して指定）";
+ if(step===3)return "LT：画像左側の皮質内側（endosteal cortex）";
+ if(step===4)return "LT：画像右側の皮質内側（endosteal cortex）";
+ if(step===5)return "骨軸決定用（LT−7 cm付近）：画像左側の皮質内側";
+ if(step===6)return "骨軸決定用（LT−7 cm付近）：画像右側の皮質内側";
+ if(step>=7&&step<23){const n=step-7,i=Math.floor(n/4),j=n%4;return levels[i].name+"："+["画像左側の皮質内側","画像右側の皮質内側","ステム左縁","ステム右縁"][j]}
+ if(step===23)return "CI −10 cm：画像左側の皮質外側（periosteal cortex）";
+ if(step===24)return "CI −10 cm：画像右側の皮質外側（periosteal cortex）";
+ if(step===25)return "CI −10 cm：画像左側の皮質内側（endosteal cortex）";
+ if(step===26)return "CI −10 cm：画像右側の皮質内側（endosteal cortex）";
  return "測定完了";
 }
 function refreshGuide(){guide(currentInstruction())}
 function selectLast(q,meta){selectedPoint={q,...meta};setNudgeEnabled(true)}
 function resetAll(){
- ltPts=[];d7Pts=[];scale=null;axis=null;levelCenters=[];measurements={};ciCenter=null;ciMeasure={D:null,M:null};step=0;history=[];waitingScale=false;ltMm.value="";
- selectedPoint=null;setNudgeEnabled(false);document.getElementById("ltMmConfirm").disabled=true;document.getElementById('csvBtn').disabled=true;document.getElementById('pngBtn').disabled=true;
+ headPts=[];headCircle=null;ltPts=[];d7Pts=[];scale=null;axis=null;levelCenters=[];measurements={};ciCenter=null;ciMeasure={D:null,M:null};step=0;history=[];
+ selectedPoint=null;setNudgeEnabled(false);document.getElementById('csvBtn').disabled=true;document.getElementById('pngBtn').disabled=true;
  refreshGuide();updateTable();updateCI();draw();
 }
 function recordPoint(p){
- if(waitingScale)return;
- history.push({step,ltMm:ltMm.value});
- if(step===0||step===1){const j=step;ltPts[j]=p;selectLast(ltPts[j],{type:"lt",j});step++;if(step===2){waitingScale=true;guide("LTレベルの実測髄腔幅(mm)を入力してください");statusEl.textContent="最後に打った点は十字キーで微調整できます。2点間の実測距離をmmで入力してください。";}draw();return}
- if(step===2||step===3){const j=step-2;d7Pts[j]=p;selectLast(d7Pts[j],{type:"d7",j});step++;if(step===4){buildFinalAxisFromLTandD7();statusEl.textContent="LT中点と遠位側内側皮質2点の中点を結んで最終骨軸を確定しました。LT−7 cm測定線は、この最終骨軸上でLTから正確に70 mm遠位に再配置しました。";}refreshGuide();draw();return}
- if(step>=4&&step<20){
-   const n=step-4,i=Math.floor(n/4),j=n%4;if(!measurements[i])measurements[i]={};
+ history.push({step});
+ if(step<=2){headPts[step]=p;selectLast(headPts[step],{type:"head",j:step});step++;if(step===3){if(!fitHeadCircle()){headPts.pop();step=2;statusEl.textContent="3点から円を計算できません。3点目を離れた位置に指定してください。";}else statusEl.textContent="32 mm人工骨頭で校正しました。骨頭円を確認し、続けてLTを指定してください。";}refreshGuide();draw();return}
+ if(step===3||step===4){const j=step-3;ltPts[j]=p;selectLast(ltPts[j],{type:"lt",j});step++;if(step===5){buildAxisFromLT();statusEl.textContent="LTの2点を取得しました。仮軸とLT−7 cmガイドを表示します。";}refreshGuide();draw();return}
+ if(step===5||step===6){const j=step-5;d7Pts[j]=p;selectLast(d7Pts[j],{type:"d7",j});step++;if(step===7){buildFinalAxisFromLTandD7();statusEl.textContent="LT中点と遠位側内側皮質2点の中点を結んで最終骨軸を確定しました。LT−7 cm測定線は最終骨軸上でLTから正確に70 mm遠位です。";}refreshGuide();draw();return}
+ if(step>=7&&step<23){
+   const n=step-7,i=Math.floor(n/4),j=n%4;if(!measurements[i])measurements[i]={};
    const k=j<2?"canal":"stem",idx=j%2;if(!measurements[i][k])measurements[i][k]=[];
    measurements[i][k][idx]=projectToLine(p,levelCenters[i]);selectLast(measurements[i][k][idx],{type:"measure",i,k,j:idx});step++;updateTable();refreshGuide();draw();return;
  }
- if(step>=20&&step<24){
-   const j=step-20,k=j<2?"D":"M",idx=j%2;if(!ciMeasure[k])ciMeasure[k]=[];
+ if(step>=23&&step<27){
+   const j=step-23,k=j<2?"D":"M",idx=j%2;if(!ciMeasure[k])ciMeasure[k]=[];
    ciMeasure[k][idx]=projectToLine(p,ciCenter);selectLast(ciMeasure[k][idx],{type:"ci",k,j:idx});step++;updateCI();
-   if(step===24){document.getElementById('csvBtn').disabled=false;document.getElementById('pngBtn').disabled=false;statusEl.textContent="すべての測定が完了しました。必要なら「点を修正」で微調整できます。";}
+   if(step===27){document.getElementById('csvBtn').disabled=false;document.getElementById('pngBtn').disabled=false;statusEl.textContent="すべての測定が完了しました。必要なら「点を修正」で微調整できます。";}
    refreshGuide();draw();
  }
 }
 function undo(){
- if(waitingScale){waitingScale=false;step=1;ltPts.pop();refreshGuide();draw();return}
  if(step<=0)return;
  const s=step-1;step=s;
- if(s<2)ltPts[s]=undefined,ltPts=ltPts.filter(Boolean);
- else if(s<4)d7Pts[s-2]=undefined,d7Pts=d7Pts.filter(Boolean);
- else if(s<20){const n=s-4,i=Math.floor(n/4),j=n%4,k=j<2?"canal":"stem",idx=j%2;if(measurements[i]?.[k])measurements[i][k][idx]=undefined}
- else {const j=s-20,k=j<2?"D":"M",idx=j%2;if(ciMeasure[k])ciMeasure[k][idx]=undefined}
+ if(s<3){headPts[s]=undefined;headPts=headPts.filter(Boolean);headCircle=null;scale=null}
+ else if(s<5){ltPts[s-3]=undefined;ltPts=ltPts.filter(Boolean)}
+ else if(s<7){d7Pts[s-5]=undefined;d7Pts=d7Pts.filter(Boolean)}
+ else if(s<23){const n=s-7,i=Math.floor(n/4),j=n%4,k=j<2?"canal":"stem",idx=j%2;if(measurements[i]?.[k])measurements[i][k][idx]=undefined}
+ else {const j=s-23,k=j<2?"D":"M",idx=j%2;if(ciMeasure[k])ciMeasure[k][idx]=undefined}
+ if(headPts.length===3)fitHeadCircle();if(ltPts.length===2&&scale)computeAxis();
  document.getElementById('csvBtn').disabled=true;document.getElementById('pngBtn').disabled=true;refreshGuide();updateTable();updateCI();draw();
 }
 function draw(){
  if(!img.src)return;cv.width=img.naturalWidth;cv.height=img.naturalHeight;ctx.drawImage(img,0,0);ctx.lineWidth=Math.max(2,cv.width/700);ctx.font=`${Math.max(14,cv.width/60)}px sans-serif`;
  function dots(ps,color){ctx.fillStyle=color;(ps||[]).filter(Boolean).forEach(p=>{ctx.beginPath();ctx.arc(p.x,p.y,Math.max(6,cv.width/150),0,Math.PI*2);ctx.fill()})}
+ dots(headPts,"#22d3ee");
+ if(headCircle){ctx.strokeStyle="#22d3ee";ctx.lineWidth=Math.max(2,cv.width/700);ctx.beginPath();ctx.arc(headCircle.x,headCircle.y,headCircle.r,0,Math.PI*2);ctx.stroke();ctx.fillStyle="#fff";ctx.fillText("32 mm",headCircle.x+headCircle.r+8,headCircle.y);}
  dots(ltPts,"#38bdf8");dots(d7Pts,"#f59e0b");
  if(axis){ctx.strokeStyle="#22c55e";ctx.setLineDash([10,8]);ctx.beginPath();ctx.moveTo(axis.o.x-axis.v.x*5000,axis.o.y-axis.v.y*5000);ctx.lineTo(axis.o.x+axis.v.x*5000,axis.o.y+axis.v.y*5000);ctx.stroke();ctx.setLineDash([]);
  levelCenters.forEach((c,i)=>{const le=lineEnds(c,cv.width*.18);ctx.strokeStyle=i===1?"#38bdf8":"#e2e8f0";ctx.beginPath();ctx.moveTo(le[0].x,le[0].y);ctx.lineTo(le[1].x,le[1].y);ctx.stroke();ctx.fillStyle="#fff";ctx.fillText(levels[i].name,c.x+10,c.y-8)});
@@ -187,7 +202,7 @@ function draw(){
 function updateTable(){const tb=document.getElementById('tbody');tb.innerHTML="";levels.forEach((l,i)=>{const m=measurements[i]||{},cp=(m.canal||[]).filter(Boolean),sp=(m.stem||[]).filter(Boolean),cc=cp.length===2?dist(...cp):null,ss=sp.length===2?dist(...sp):null,r=cc&&ss?100*ss/cc:null;const tr=document.createElement("tr");tr.innerHTML=`<td>${l.name}</td><td>${cc?cc.toFixed(1):""}</td><td>${ss?ss.toFixed(1):""}</td><td>${r?r.toFixed(1):""}</td>`;tb.appendChild(tr)})}
 function updateCI(){const dp=(ciMeasure.D||[]).filter(Boolean),mp=(ciMeasure.M||[]).filter(Boolean),Dpx=dp.length===2?dist(...dp):null,Mpx=mp.length===2?dist(...mp):null,D=Dpx&&scale?Dpx/scale:null,M=Mpx&&scale?Mpx/scale:null,ci=D&&M?(D-M)/D:null,cls=ci==null?"":ci>=.60?"A":ci>=.50?"B":"C";document.getElementById("ciD").textContent=D?D.toFixed(1):"";document.getElementById("ciM").textContent=M?M.toFixed(1):"";document.getElementById("ciVal").textContent=ci!=null?ci.toFixed(3):"";document.getElementById("ciClass").textContent=cls;return{D,M,ci,cls}}
 function clearDependentMeasurements(){
- measurements={};ciMeasure={D:null,M:null};step=4;
+ measurements={};ciMeasure={D:null,M:null};step=7;
  document.getElementById('csvBtn').disabled=true;document.getElementById('pngBtn').disabled=true;
  updateTable();updateCI();refreshGuide();
 }
@@ -198,18 +213,14 @@ function invalidateAfterAxisEdit(){
  }
 }
 function setEditMode(on){editMode=on;stageWrap.classList.toggle("editing",on);const b=document.getElementById("editModeBtn");b.classList.toggle("active",on);b.textContent=on?"修正終了":"点を修正";if(!on){selectedPoint=null;setNudgeEnabled(false);refreshGuide()}else guide("修正したいドットを選択してください")}
-function candidates(){const a=[];ltPts.forEach((q,j)=>a.push({q,type:"lt",j}));d7Pts.forEach((q,j)=>a.push({q,type:"d7",j}));Object.entries(measurements).forEach(([i,m])=>["canal","stem"].forEach(k=>(m[k]||[]).forEach((q,j)=>q&&a.push({q,type:"measure",i:+i,k,j}))));["D","M"].forEach(k=>(ciMeasure[k]||[]).forEach((q,j)=>q&&a.push({q,type:"ci",k,j})));return a}
-function moveSelected(dx,dy){if(!selectedPoint)return;let p=selectedPoint.q,np={x:p.x+dx,y:p.y+dy};if(selectedPoint.type==="measure")np=projectToLine(np,levelCenters[selectedPoint.i]);if(selectedPoint.type==="ci")np=projectToLine(np,ciCenter);p.x=np.x;p.y=np.y;if(selectedPoint.type==="lt"||selectedPoint.type==="d7"){if(selectedPoint.type==="lt"&&scale)scale=dist(ltPts[0],ltPts[1])/(+ltMm.value);if(d7Pts.length===2)buildFinalAxisFromLTandD7();else buildAxisFromLT();invalidateAfterAxisEdit()}updateTable();updateCI();draw()}
-function loadImageFile(f){if(!f)return;img.onload=()=>{resetAll();draw();guide("LT：画像左側の皮質内側（endosteal cortex）");statusEl.textContent="測定を開始しました。青枠の指示に従って1点ずつ指定してください。"};img.src=URL.createObjectURL(f)}
+function candidates(){const a=[];headPts.forEach((q,j)=>a.push({q,type:"head",j}));ltPts.forEach((q,j)=>a.push({q,type:"lt",j}));d7Pts.forEach((q,j)=>a.push({q,type:"d7",j}));Object.entries(measurements).forEach(([i,m])=>["canal","stem"].forEach(k=>(m[k]||[]).forEach((q,j)=>q&&a.push({q,type:"measure",i:+i,k,j}))));["D","M"].forEach(k=>(ciMeasure[k]||[]).forEach((q,j)=>q&&a.push({q,type:"ci",k,j})));return a}
+function moveSelected(dx,dy){if(!selectedPoint)return;let p=selectedPoint.q,np={x:p.x+dx,y:p.y+dy};if(selectedPoint.type==="measure")np=projectToLine(np,levelCenters[selectedPoint.i]);if(selectedPoint.type==="ci")np=projectToLine(np,ciCenter);p.x=np.x;p.y=np.y;if(selectedPoint.type==="head"){fitHeadCircle();if(ltPts.length===2)computeAxis();invalidateAfterAxisEdit()}else if(selectedPoint.type==="lt"||selectedPoint.type==="d7"){if(d7Pts.length===2)buildFinalAxisFromLTandD7();else buildAxisFromLT();invalidateAfterAxisEdit()}updateTable();updateCI();draw()}
+function loadImageFile(f){if(!f)return;img.onload=()=>{resetAll();draw();guide("32 mm人工骨頭：辺縁の1点目（3点はできるだけ離して指定）");statusEl.textContent="測定を開始しました。まず32 mm人工骨頭の辺縁を3点指定してください。"};img.src=URL.createObjectURL(f)}
 document.getElementById('cameraBtn').onclick=()=>cameraFile.click();document.getElementById('galleryBtn').onclick=()=>file.click();cameraFile.onchange=e=>loadImageFile(e.target.files[0]);file.onchange=e=>loadImageFile(e.target.files[0]);
 document.getElementById('zoomInBtn').onclick=()=>setZoom(zoom+.5);document.getElementById('zoomOutBtn').onclick=()=>setZoom(zoom-.5);document.getElementById('zoomResetBtn').onclick=()=>setZoom(1);document.getElementById('editModeBtn').onclick=()=>setEditMode(!editMode);
 document.getElementById('resetBtn').onclick=resetAll;document.getElementById('undoBtn').onclick=undo;
-ltMm.oninput=()=>{document.getElementById("ltMmConfirm").disabled=!(waitingScale&&ltPts.length===2&&+ltMm.value>0);};
-function confirmLtMm(){if(!(waitingScale&&ltPts.length===2&&+ltMm.value>0))return;scale=dist(ltPts[0],ltPts[1])/(+ltMm.value);buildAxisFromLT();waitingScale=false;step=2;document.getElementById("ltMmConfirm").disabled=true;refreshGuide();statusEl.textContent="LT実測幅 "+(+ltMm.value)+" mm で確定しました。LTの垂直二等分線を仮軸として遠位7 cmのガイド位置を表示します。LT−7 cmの皮質点は自由に指定してください。";draw()}
-document.getElementById("ltMmConfirm").onclick=confirmLtMm;
-ltMm.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();confirmLtMm()}});
-cv.addEventListener('pointerdown',e=>{if(!img.src)return;const p=canvasPoint(e);if(editMode){e.preventDefault();let best=null,bd=Infinity;for(const x of candidates()){const d=dist(p,x.q);if(d<bd){bd=d;best=x}}if(best&&bd<Math.max(28,cv.width/45)/zoom){selectedPoint=best;dragPoint=best;setNudgeEnabled(true);cv.setPointerCapture(e.pointerId);guide("選択点をドラッグまたは十字キーで微調整");draw()}return}if(waitingScale)return;recordPoint(p)});
-cv.addEventListener('pointermove',e=>{if(!dragPoint)return;e.preventDefault();let p=canvasPoint(e);if(dragPoint.type==="measure")p=projectToLine(p,levelCenters[dragPoint.i]);if(dragPoint.type==="ci")p=projectToLine(p,ciCenter);dragPoint.q.x=p.x;dragPoint.q.y=p.y;if(dragPoint.type==="lt"||dragPoint.type==="d7"){if(dragPoint.type==="lt"&&scale)scale=dist(ltPts[0],ltPts[1])/(+ltMm.value);if(d7Pts.length===2)buildFinalAxisFromLTandD7();else buildAxisFromLT();invalidateAfterAxisEdit()}updateTable();updateCI();draw()});
+cv.addEventListener('pointerdown',e=>{if(!img.src)return;const p=canvasPoint(e);if(editMode){e.preventDefault();let best=null,bd=Infinity;for(const x of candidates()){const d=dist(p,x.q);if(d<bd){bd=d;best=x}}if(best&&bd<Math.max(28,cv.width/45)/zoom){selectedPoint=best;dragPoint=best;setNudgeEnabled(true);cv.setPointerCapture(e.pointerId);guide("選択点をドラッグまたは十字キーで微調整");draw()}return}recordPoint(p)});
+cv.addEventListener('pointermove',e=>{if(!dragPoint)return;e.preventDefault();let p=canvasPoint(e);if(dragPoint.type==="measure")p=projectToLine(p,levelCenters[dragPoint.i]);if(dragPoint.type==="ci")p=projectToLine(p,ciCenter);dragPoint.q.x=p.x;dragPoint.q.y=p.y;if(dragPoint.type==="head"){fitHeadCircle();if(ltPts.length===2)computeAxis();invalidateAfterAxisEdit()}else if(dragPoint.type==="lt"||dragPoint.type==="d7"){if(d7Pts.length===2)buildFinalAxisFromLTandD7();else buildAxisFromLT();invalidateAfterAxisEdit()}updateTable();updateCI();draw()});
 cv.addEventListener('pointerup',()=>dragPoint=null);
 document.getElementById("nudgeUp").onclick=()=>moveSelected(0,-5);document.getElementById("nudgeDown").onclick=()=>moveSelected(0,5);document.getElementById("nudgeLeft").onclick=()=>moveSelected(-5,0);document.getElementById("nudgeRight").onclick=()=>moveSelected(5,0);
 document.addEventListener("keydown",e=>{if(!selectedPoint)return;if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.key)){e.preventDefault();const s=e.shiftKey?25:5;if(e.key==="ArrowUp")moveSelected(0,-s);if(e.key==="ArrowDown")moveSelected(0,s);if(e.key==="ArrowLeft")moveSelected(-s,0);if(e.key==="ArrowRight")moveSelected(s,0)}});
@@ -218,13 +229,13 @@ function missingCsvFields(){
  const missing=[];
  if(!document.getElementById("caseId").value.trim())missing.push("症例ID");
  if(!document.getElementById("dorrValue").value)missing.push("Dorr分類");
- if(!(ltPts.length===2&&+ltMm.value>0&&scale))missing.push("LT実測幅");
+ if(!(headPts.length===3&&headCircle&&scale))missing.push("32 mm骨頭校正");
  if(d7Pts.filter(Boolean).length!==2)missing.push("骨軸決定用遠位基準点");
  const r=data();levels.forEach((l,i)=>{if(r[i]==null||!Number.isFinite(r[i]))missing.push(l.name+" CFR")});
  const ci=updateCI();if(!(ci.D>0))missing.push("CI 外径D");if(!(ci.M>0))missing.push("CI 髄腔内径M");if(ci.ci==null||!Number.isFinite(ci.ci))missing.push("CI");
  return missing;
 }
-document.getElementById('csvBtn').onclick=()=>{const missing=missingCsvFields();if(missing.length){statusEl.textContent="CSV保存できません。未入力："+missing.join("、");guide("未入力データを完成してください");return;}const id=document.getElementById('caseId').value.trim().replace(/[^\w\-]/g,"_"),r=data(),ratios=[r[0]&&r[3]?r[0]/r[3]:null,r[1]&&r[3]?r[1]/r[3]:null,r[2]&&r[3]?r[2]/r[3]:null],dorr=document.getElementById("dorrValue").value,ci=updateCI();let csv="CaseID,Visual_Dorr,CI_D_mm,CI_M_mm,CI,CI_based_class,AP_CFR_LTplus2_pct,AP_CFR_LT_pct,AP_CFR_LTminus2_pct,AP_CFR_LTminus7_pct,Ratio_LTplus2_LTminus7,Ratio_LT_LTminus7,Ratio_LTminus2_LTminus7\n";csv+=[id,dorr,ci.D?.toFixed(2)||"",ci.M?.toFixed(2)||"",ci.ci?.toFixed(4)||"",ci.cls,...r.map(x=>x?.toFixed(2)||""),...ratios.map(x=>x?.toFixed(4)||"")].join(",");const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download=id+"_CFR_CI.csv";a.click()};
+document.getElementById('csvBtn').onclick=()=>{const missing=missingCsvFields();if(missing.length){statusEl.textContent="CSV保存できません。未入力："+missing.join("、");guide("未入力データを完成してください");return;}const id=document.getElementById('caseId').value.trim().replace(/[^\w\-]/g,"_"),r=data(),ratios=[r[0]&&r[3]?r[0]/r[3]:null,r[1]&&r[3]?r[1]/r[3]:null,r[2]&&r[3]?r[2]/r[3]:null],dorr=document.getElementById("dorrValue").value,ci=updateCI();let csv="CaseID,Visual_Dorr,Calibration_Head_mm,CI_D_mm,CI_M_mm,CI,CI_based_class,AP_CFR_LTplus2_pct,AP_CFR_LT_pct,AP_CFR_LTminus2_pct,AP_CFR_LTminus7_pct,Ratio_LTplus2_LTminus7,Ratio_LT_LTminus7,Ratio_LTminus2_LTminus7\n";csv+=[id,dorr,HEAD_DIAMETER_MM,ci.D?.toFixed(2)||"",ci.M?.toFixed(2)||"",ci.ci?.toFixed(4)||"",ci.cls,...r.map(x=>x?.toFixed(2)||""),...ratios.map(x=>x?.toFixed(4)||"")].join(",");const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download=id+"_CFR_CI.csv";a.click()};
 document.getElementById('pngBtn').onclick=()=>{const id=(document.getElementById('caseId').value||"case").replace(/[^\w\-]/g,"_"),a=document.createElement("a");a.href=cv.toDataURL("image/png");a.download=id+"_CFR_CI_measured.png";a.click()};
 document.querySelectorAll(".dorrBtn").forEach(b=>b.onclick=()=>{document.getElementById("dorrValue").value=b.dataset.dorr;document.querySelectorAll(".dorrBtn").forEach(x=>x.classList.toggle("active",x===b))});document.getElementById("dorrClear").onclick=()=>{document.getElementById("dorrValue").value="";document.querySelectorAll(".dorrBtn").forEach(x=>x.classList.remove("active"))};
 updateTable();updateCI();applyZoom();refreshGuide();
