@@ -20,16 +20,13 @@ button.active{outline:2px solid var(--accent)}button:disabled{opacity:.45}.small
 canvas{display:block;width:100%;height:auto;cursor:crosshair}
 table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}th,td{padding:6px;border-bottom:1px solid var(--line);text-align:right}th:first-child,td:first-child{text-align:left}
 .status{font-size:13px;padding:8px;background:#0b1220;border-radius:8px;margin-top:8px}
-.case-meta{margin:0 12px 12px}.case-meta input{max-width:360px}
+.case-meta{margin:0 0 10px}.case-meta input{max-width:360px}.image-card{display:flex;flex-direction:column}
 #nudgePanel button{min-width:52px;font-size:22px}
 @media(max-width:800px){.wrap{grid-template-columns:1fr}.card.controls{order:2}#stageWrap{min-height:45vh}}
 </style>
 </head>
 <body>
 <header>THA Stem CFR Measurement Tool <span class="small">v1.4</span></header>
-<section class="card case-meta">
-
-</section>
 <div class="wrap">
 <section class="card controls">
 <label>症例ID</label><input id="caseId" type="text" placeholder="例: 4091871">
@@ -94,7 +91,17 @@ table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}th,td{pa
 <div class="small">CFR = stem width / endosteal canal width ×100。画像処理はブラウザ内のみで行い、画像を外部送信しません。</div>
 </section>
 
-<section class="card"><div id="stageWrap"><canvas id="cv"></canvas></div></section>
+<section class="card image-card"><div class="case-meta">
+<label>症例ID</label><input id="caseId" type="text" placeholder="例: 4091871">
+<label style="margin-top:8px;display:block">Dorr分類</label>
+<div class="row">
+<button type="button" class="dorrBtn" data-dorr="A">A</button>
+<button type="button" class="dorrBtn" data-dorr="B">B</button>
+<button type="button" class="dorrBtn" data-dorr="C">C</button>
+<button type="button" id="dorrClear">未判定</button>
+</div>
+<input id="dorrValue" type="hidden" value="">
+</div><div id="stageWrap"><canvas id="cv"></canvas></div></section>
 </div>
 <script>
 const cv=document.getElementById('cv'),ctx=cv.getContext('2d'),file=document.getElementById('file'),cameraFile=document.getElementById('cameraFile');
