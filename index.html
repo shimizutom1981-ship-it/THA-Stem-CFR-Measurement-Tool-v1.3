@@ -26,7 +26,7 @@ table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}th,td{pa
 </style>
 </head>
 <body>
-<header>THA Stem CFR Measurement Tool <span class="small">v1.6 Guided</span></header>
+<header>THA Stem CFR Measurement Tool <span class="small">v1.7 Guided</span></header>
 <div class="wrap">
 <section class="card controls">
 <div class="row">
@@ -46,7 +46,7 @@ table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}th,td{pa
 <div class="small">画像を読み込むと測定が自動で始まります。画面の「次に打つ点」に従って、1点ずつ順番に指定してください。</div>
 <div id="guide" class="status" style="font-size:17px;font-weight:700;border:2px solid #38bdf8">次に打つ点：画像を読み込んでください。</div>
 <label>LTレベルの実測 endosteal canal width (mm)</label>
-<input id="ltMm" type="number" min="0.1" step="0.1" placeholder="LTの左右皮質内側を指定後に入力">
+<div class="row"><input id="ltMm" type="number" min="0.1" step="0.1" placeholder="LTの左右皮質内側を指定後に入力" style="flex:1"><button id="ltMmConfirm" class="primary" disabled>この値で決定</button></div>
 <div class="row"><button id="undoBtn">1点戻す</button><button id="resetBtn">最初からやり直す</button></div>
 <div id="status" class="status">画像を読み込んでください。</div>
 
@@ -132,7 +132,7 @@ function currentInstruction(){
 function refreshGuide(){guide(currentInstruction())}
 function resetAll(){
  ltPts=[];d7Pts=[];scale=null;axis=null;levelCenters=[];measurements={};ciCenter=null;ciMeasure={D:null,M:null};step=0;history=[];waitingScale=false;ltMm.value="";
- selectedPoint=null;setNudgeEnabled(false);document.getElementById('csvBtn').disabled=true;document.getElementById('pngBtn').disabled=true;
+ selectedPoint=null;setNudgeEnabled(false);document.getElementById("ltMmConfirm").disabled=true;document.getElementById('csvBtn').disabled=true;document.getElementById('pngBtn').disabled=true;
  refreshGuide();updateTable();updateCI();draw();
 }
 function recordPoint(p){
@@ -182,7 +182,10 @@ function loadImageFile(f){if(!f)return;img.onload=()=>{resetAll();draw();guide("
 document.getElementById('cameraBtn').onclick=()=>cameraFile.click();document.getElementById('galleryBtn').onclick=()=>file.click();cameraFile.onchange=e=>loadImageFile(e.target.files[0]);file.onchange=e=>loadImageFile(e.target.files[0]);
 document.getElementById('zoomInBtn').onclick=()=>setZoom(zoom+.5);document.getElementById('zoomOutBtn').onclick=()=>setZoom(zoom-.5);document.getElementById('zoomResetBtn').onclick=()=>setZoom(1);document.getElementById('editModeBtn').onclick=()=>setEditMode(!editMode);
 document.getElementById('resetBtn').onclick=resetAll;document.getElementById('undoBtn').onclick=undo;
-ltMm.oninput=()=>{if(waitingScale&&ltPts.length===2&&+ltMm.value>0){scale=dist(ltPts[0],ltPts[1])/(+ltMm.value);buildAxisFromLT();waitingScale=false;step=2;refreshGuide();statusEl.textContent="LT線の垂直二等分線上で遠位7 cmの測定線を固定しました。この線上にのみ点を指定できます。";draw()}};
+ltMm.oninput=()=>{document.getElementById("ltMmConfirm").disabled=!(waitingScale&&ltPts.length===2&&+ltMm.value>0);};
+function confirmLtMm(){if(!(waitingScale&&ltPts.length===2&&+ltMm.value>0))return;scale=dist(ltPts[0],ltPts[1])/(+ltMm.value);buildAxisFromLT();waitingScale=false;step=2;document.getElementById("ltMmConfirm").disabled=true;refreshGuide();statusEl.textContent="LT実測幅 "+(+ltMm.value)+" mm で確定しました。LT線の垂直二等分線上で遠位7 cmの測定線を固定しました。";draw()}
+document.getElementById("ltMmConfirm").onclick=confirmLtMm;
+ltMm.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();confirmLtMm()}});
 cv.addEventListener('pointerdown',e=>{if(!img.src)return;const p=canvasPoint(e);if(editMode){e.preventDefault();let best=null,bd=Infinity;for(const x of candidates()){const d=dist(p,x.q);if(d<bd){bd=d;best=x}}if(best&&bd<Math.max(28,cv.width/45)/zoom){selectedPoint=best;dragPoint=best;setNudgeEnabled(true);cv.setPointerCapture(e.pointerId);guide("選択点をドラッグまたは十字キーで微調整");draw()}return}if(waitingScale)return;recordPoint(p)});
 cv.addEventListener('pointermove',e=>{if(!dragPoint)return;e.preventDefault();let p=canvasPoint(e);if(dragPoint.type==="measure")p=projectToLine(p,levelCenters[dragPoint.i]);if(dragPoint.type==="ci")p=projectToLine(p,ciCenter);if(dragPoint.type==="d7")p=projectToD7(p);dragPoint.q.x=p.x;dragPoint.q.y=p.y;if(dragPoint.type==="lt")buildAxisFromLT();updateTable();updateCI();draw()});
 cv.addEventListener('pointerup',()=>dragPoint=null);
