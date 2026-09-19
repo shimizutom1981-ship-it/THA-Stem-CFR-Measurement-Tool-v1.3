@@ -26,7 +26,7 @@ table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}th,td{pa
 </style>
 </head>
 <body>
-<header>THA Stem CFR Measurement Tool <span class="small">v1.8 Guided</span></header>
+<header>THA Stem CFR Measurement Tool <span class="small">v1.9 Guided</span></header>
 <div class="wrap">
 <section class="card controls">
 <div class="row">
@@ -165,14 +165,14 @@ function undo(){
 }
 function draw(){
  if(!img.src)return;cv.width=img.naturalWidth;cv.height=img.naturalHeight;ctx.drawImage(img,0,0);ctx.lineWidth=Math.max(2,cv.width/700);ctx.font=`${Math.max(14,cv.width/60)}px sans-serif`;
- function dots(ps,color){ctx.fillStyle=color;(ps||[]).filter(Boolean).forEach(p=>{ctx.beginPath();ctx.arc(p.x,p.y,Math.max(8,cv.width/120),0,Math.PI*2);ctx.fill()})}
+ function dots(ps,color){ctx.fillStyle=color;(ps||[]).filter(Boolean).forEach(p=>{ctx.beginPath();ctx.arc(p.x,p.y,Math.max(6,cv.width/150),0,Math.PI*2);ctx.fill()})}
  dots(ltPts,"#38bdf8");dots(d7Pts,"#f59e0b");
  if(axis){ctx.strokeStyle="#22c55e";ctx.setLineDash([10,8]);ctx.beginPath();ctx.moveTo(axis.o.x-axis.v.x*5000,axis.o.y-axis.v.y*5000);ctx.lineTo(axis.o.x+axis.v.x*5000,axis.o.y+axis.v.y*5000);ctx.stroke();ctx.setLineDash([]);
  levelCenters.forEach((c,i)=>{const le=lineEnds(c,cv.width*.18);ctx.strokeStyle=i===1?"#38bdf8":"#e2e8f0";ctx.beginPath();ctx.moveTo(le[0].x,le[0].y);ctx.lineTo(le[1].x,le[1].y);ctx.stroke();ctx.fillStyle="#fff";ctx.fillText(levels[i].name,c.x+10,c.y-8)});
  if(ciCenter){const le=lineEnds(ciCenter,cv.width*.18);ctx.strokeStyle="#a78bfa";ctx.beginPath();ctx.moveTo(le[0].x,le[0].y);ctx.lineTo(le[1].x,le[1].y);ctx.stroke();ctx.fillStyle="#fff";ctx.fillText("CI -10cm",ciCenter.x+10,ciCenter.y-8)}}
  Object.values(measurements).forEach(m=>["canal","stem"].forEach(k=>{const ps=(m[k]||[]).filter(Boolean);if(ps.length){dots(ps,k==="canal"?"#f59e0b":"#ef4444");if(ps.length===2){ctx.strokeStyle=k==="canal"?"#f59e0b":"#ef4444";ctx.beginPath();ctx.moveTo(ps[0].x,ps[0].y);ctx.lineTo(ps[1].x,ps[1].y);ctx.stroke()}}}));
  ["D","M"].forEach(k=>{const ps=(ciMeasure[k]||[]).filter(Boolean);if(ps.length){dots(ps,k==="D"?"#a78bfa":"#22d3ee");if(ps.length===2){ctx.strokeStyle=k==="D"?"#a78bfa":"#22d3ee";ctx.beginPath();ctx.moveTo(ps[0].x,ps[0].y);ctx.lineTo(ps[1].x,ps[1].y);ctx.stroke()}}});
- if(selectedPoint?.q){ctx.strokeStyle="#fff";ctx.lineWidth=Math.max(3,cv.width/500);ctx.beginPath();ctx.arc(selectedPoint.q.x,selectedPoint.q.y,Math.max(13,cv.width/95),0,Math.PI*2);ctx.stroke()}
+ if(selectedPoint?.q){ctx.strokeStyle="#fff";ctx.lineWidth=Math.max(3,cv.width/500);ctx.beginPath();ctx.arc(selectedPoint.q.x,selectedPoint.q.y,Math.max(10,cv.width/120),0,Math.PI*2);ctx.stroke()}
 }
 function updateTable(){const tb=document.getElementById('tbody');tb.innerHTML="";levels.forEach((l,i)=>{const m=measurements[i]||{},cp=(m.canal||[]).filter(Boolean),sp=(m.stem||[]).filter(Boolean),cc=cp.length===2?dist(...cp):null,ss=sp.length===2?dist(...sp):null,r=cc&&ss?100*ss/cc:null;const tr=document.createElement("tr");tr.innerHTML=`<td>${l.name}</td><td>${cc?cc.toFixed(1):""}</td><td>${ss?ss.toFixed(1):""}</td><td>${r?r.toFixed(1):""}</td>`;tb.appendChild(tr)})}
 function updateCI(){const dp=(ciMeasure.D||[]).filter(Boolean),mp=(ciMeasure.M||[]).filter(Boolean),Dpx=dp.length===2?dist(...dp):null,Mpx=mp.length===2?dist(...mp):null,D=Dpx&&scale?Dpx/scale:null,M=Mpx&&scale?Mpx/scale:null,ci=D&&M?(D-M)/D:null,cls=ci==null?"":ci>=.60?"A":ci>=.50?"B":"C";document.getElementById("ciD").textContent=D?D.toFixed(1):"";document.getElementById("ciM").textContent=M?M.toFixed(1):"";document.getElementById("ciVal").textContent=ci!=null?ci.toFixed(3):"";document.getElementById("ciClass").textContent=cls;return{D,M,ci,cls}}
