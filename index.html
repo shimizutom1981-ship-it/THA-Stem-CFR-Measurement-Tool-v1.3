@@ -26,7 +26,7 @@ table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}th,td{pa
 </style>
 </head>
 <body>
-<header>THA Stem CFR Measurement Tool <span class="small">v1.10 Guided</span></header>
+<header>THA Stem CFR Measurement Tool <span class="small">v1.11 Guided</span></header>
 <div class="wrap">
 <section class="card controls">
 <div class="row">
@@ -113,15 +113,25 @@ function buildAxisFromLT(){
 }
 function d7Center(){return axis?{x:axis.o.x+axis.v.x*70*scale,y:axis.o.y+axis.v.y*70*scale}:null}
 function projectToD7(p){const c=d7Center();return c?projectToLine(p,c):p}
-function computeAxis(){return buildAxisFromLT()}
+function buildFinalAxisFromLTandD7(){
+ if(ltPts.length<2||d7Pts.length<2||!scale)return false;
+ const o=mid(ltPts[0],ltPts[1]),d=mid(d7Pts[0],d7Pts[1]);
+ let vx=d.x-o.x,vy=d.y-o.y,L=Math.hypot(vx,vy);if(!L)return false;
+ vx/=L;vy/=L;
+ axis={o,v:{x:vx,y:vy}};
+ levelCenters=levels.map(l=>({x:o.x-vx*l.mm*scale,y:o.y-vy*l.mm*scale}));
+ ciCenter={x:o.x+vx*100*scale,y:o.y+vy*100*scale};
+ return true;
+}
+function computeAxis(){return d7Pts.length===2?buildFinalAxisFromLTandD7():buildAxisFromLT()}
 
 function lineEnds(c,len=90){if(!axis)return null;const n={x:-axis.v.y,y:axis.v.x};return[{x:c.x-n.x*len,y:c.y-n.y*len},{x:c.x+n.x*len,y:c.y+n.y*len}]}
 function currentInstruction(){
  if(waitingScale)return "LTレベルの実測髄腔幅(mm)を入力してください";
  if(step===0)return "LT：画像左側の皮質内側（endosteal cortex）";
  if(step===1)return "LT：画像右側の皮質内側（endosteal cortex）";
- if(step===2)return "LT−7 cm固定線：画像左側の皮質内側";
- if(step===3)return "LT−7 cm固定線：画像右側の皮質内側";
+ if(step===2)return "LT−7 cmガイド付近：画像左側の皮質内側";
+ if(step===3)return "LT−7 cmガイド付近：画像右側の皮質内側";
  if(step>=4&&step<20){const n=step-4,i=Math.floor(n/4),j=n%4;return levels[i].name+"："+["画像左側の皮質内側","画像右側の皮質内側","ステム左縁","ステム右縁"][j]}
  if(step===20)return "CI −10 cm：画像左側の皮質外側（periosteal cortex）";
  if(step===21)return "CI −10 cm：画像右側の皮質外側（periosteal cortex）";
@@ -140,7 +150,7 @@ function recordPoint(p){
  if(waitingScale)return;
  history.push({step,ltMm:ltMm.value});
  if(step===0||step===1){const j=step;ltPts[j]=p;selectLast(ltPts[j],{type:"lt",j});step++;if(step===2){waitingScale=true;guide("LTレベルの実測髄腔幅(mm)を入力してください");statusEl.textContent="最後に打った点は十字キーで微調整できます。2点間の実測距離をmmで入力してください。";}draw();return}
- if(step===2||step===3){p=projectToD7(p);const j=step-2;d7Pts[j]=p;selectLast(d7Pts[j],{type:"d7",j});step++;if(step===4){statusEl.textContent="最後に打った点は十字キーで微調整できます。LTの垂直二等分線を基準に4つのCFR測定レベルを自動配置しました。";}refreshGuide();draw();return}
+ if(step===2||step===3){const j=step-2;d7Pts[j]=p;selectLast(d7Pts[j],{type:"d7",j});step++;if(step===4){buildFinalAxisFromLTandD7();statusEl.textContent="LT中点とLT−7 cm内側皮質2点の中点を結んで最終骨軸を確定し、各測定線を再配置しました。";}refreshGuide();draw();return}
  if(step>=4&&step<20){
    const n=step-4,i=Math.floor(n/4),j=n%4;if(!measurements[i])measurements[i]={};
    const k=j<2?"canal":"stem",idx=j%2;if(!measurements[i][k])measurements[i][k]=[];
@@ -178,17 +188,17 @@ function updateTable(){const tb=document.getElementById('tbody');tb.innerHTML=""
 function updateCI(){const dp=(ciMeasure.D||[]).filter(Boolean),mp=(ciMeasure.M||[]).filter(Boolean),Dpx=dp.length===2?dist(...dp):null,Mpx=mp.length===2?dist(...mp):null,D=Dpx&&scale?Dpx/scale:null,M=Mpx&&scale?Mpx/scale:null,ci=D&&M?(D-M)/D:null,cls=ci==null?"":ci>=.60?"A":ci>=.50?"B":"C";document.getElementById("ciD").textContent=D?D.toFixed(1):"";document.getElementById("ciM").textContent=M?M.toFixed(1):"";document.getElementById("ciVal").textContent=ci!=null?ci.toFixed(3):"";document.getElementById("ciClass").textContent=cls;return{D,M,ci,cls}}
 function setEditMode(on){editMode=on;stageWrap.classList.toggle("editing",on);const b=document.getElementById("editModeBtn");b.classList.toggle("active",on);b.textContent=on?"修正終了":"点を修正";if(!on){selectedPoint=null;setNudgeEnabled(false);refreshGuide()}else guide("修正したいドットを選択してください")}
 function candidates(){const a=[];ltPts.forEach((q,j)=>a.push({q,type:"lt",j}));d7Pts.forEach((q,j)=>a.push({q,type:"d7",j}));Object.entries(measurements).forEach(([i,m])=>["canal","stem"].forEach(k=>(m[k]||[]).forEach((q,j)=>q&&a.push({q,type:"measure",i:+i,k,j}))));["D","M"].forEach(k=>(ciMeasure[k]||[]).forEach((q,j)=>q&&a.push({q,type:"ci",k,j})));return a}
-function moveSelected(dx,dy){if(!selectedPoint)return;let p=selectedPoint.q,np={x:p.x+dx,y:p.y+dy};if(selectedPoint.type==="measure")np=projectToLine(np,levelCenters[selectedPoint.i]);if(selectedPoint.type==="ci")np=projectToLine(np,ciCenter);if(selectedPoint.type==="d7")np=projectToD7(np);p.x=np.x;p.y=np.y;if(selectedPoint.type==="lt")buildAxisFromLT();updateTable();updateCI();draw()}
+function moveSelected(dx,dy){if(!selectedPoint)return;let p=selectedPoint.q,np={x:p.x+dx,y:p.y+dy};if(selectedPoint.type==="measure")np=projectToLine(np,levelCenters[selectedPoint.i]);if(selectedPoint.type==="ci")np=projectToLine(np,ciCenter);p.x=np.x;p.y=np.y;if(selectedPoint.type==="lt"){if(d7Pts.length===2)buildFinalAxisFromLTandD7();else buildAxisFromLT()}if(selectedPoint.type==="d7"&&d7Pts.length===2)buildFinalAxisFromLTandD7();updateTable();updateCI();draw()}
 function loadImageFile(f){if(!f)return;img.onload=()=>{resetAll();draw();guide("LT：画像左側の皮質内側（endosteal cortex）");statusEl.textContent="測定を開始しました。青枠の指示に従って1点ずつ指定してください。"};img.src=URL.createObjectURL(f)}
 document.getElementById('cameraBtn').onclick=()=>cameraFile.click();document.getElementById('galleryBtn').onclick=()=>file.click();cameraFile.onchange=e=>loadImageFile(e.target.files[0]);file.onchange=e=>loadImageFile(e.target.files[0]);
 document.getElementById('zoomInBtn').onclick=()=>setZoom(zoom+.5);document.getElementById('zoomOutBtn').onclick=()=>setZoom(zoom-.5);document.getElementById('zoomResetBtn').onclick=()=>setZoom(1);document.getElementById('editModeBtn').onclick=()=>setEditMode(!editMode);
 document.getElementById('resetBtn').onclick=resetAll;document.getElementById('undoBtn').onclick=undo;
 ltMm.oninput=()=>{document.getElementById("ltMmConfirm").disabled=!(waitingScale&&ltPts.length===2&&+ltMm.value>0);};
-function confirmLtMm(){if(!(waitingScale&&ltPts.length===2&&+ltMm.value>0))return;scale=dist(ltPts[0],ltPts[1])/(+ltMm.value);buildAxisFromLT();waitingScale=false;step=2;document.getElementById("ltMmConfirm").disabled=true;refreshGuide();statusEl.textContent="LT実測幅 "+(+ltMm.value)+" mm で確定しました。LT線の垂直二等分線上で遠位7 cmの測定線を固定しました。";draw()}
+function confirmLtMm(){if(!(waitingScale&&ltPts.length===2&&+ltMm.value>0))return;scale=dist(ltPts[0],ltPts[1])/(+ltMm.value);buildAxisFromLT();waitingScale=false;step=2;document.getElementById("ltMmConfirm").disabled=true;refreshGuide();statusEl.textContent="LT実測幅 "+(+ltMm.value)+" mm で確定しました。LTの垂直二等分線を仮軸として遠位7 cmのガイド位置を表示します。LT−7 cmの皮質点は自由に指定してください。";draw()}
 document.getElementById("ltMmConfirm").onclick=confirmLtMm;
 ltMm.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();confirmLtMm()}});
 cv.addEventListener('pointerdown',e=>{if(!img.src)return;const p=canvasPoint(e);if(editMode){e.preventDefault();let best=null,bd=Infinity;for(const x of candidates()){const d=dist(p,x.q);if(d<bd){bd=d;best=x}}if(best&&bd<Math.max(28,cv.width/45)/zoom){selectedPoint=best;dragPoint=best;setNudgeEnabled(true);cv.setPointerCapture(e.pointerId);guide("選択点をドラッグまたは十字キーで微調整");draw()}return}if(waitingScale)return;recordPoint(p)});
-cv.addEventListener('pointermove',e=>{if(!dragPoint)return;e.preventDefault();let p=canvasPoint(e);if(dragPoint.type==="measure")p=projectToLine(p,levelCenters[dragPoint.i]);if(dragPoint.type==="ci")p=projectToLine(p,ciCenter);if(dragPoint.type==="d7")p=projectToD7(p);dragPoint.q.x=p.x;dragPoint.q.y=p.y;if(dragPoint.type==="lt")buildAxisFromLT();updateTable();updateCI();draw()});
+cv.addEventListener('pointermove',e=>{if(!dragPoint)return;e.preventDefault();let p=canvasPoint(e);if(dragPoint.type==="measure")p=projectToLine(p,levelCenters[dragPoint.i]);if(dragPoint.type==="ci")p=projectToLine(p,ciCenter);dragPoint.q.x=p.x;dragPoint.q.y=p.y;if(dragPoint.type==="lt"){if(d7Pts.length===2)buildFinalAxisFromLTandD7();else buildAxisFromLT()}if(dragPoint.type==="d7"&&d7Pts.length===2)buildFinalAxisFromLTandD7();updateTable();updateCI();draw()});
 cv.addEventListener('pointerup',()=>dragPoint=null);
 document.getElementById("nudgeUp").onclick=()=>moveSelected(0,-5);document.getElementById("nudgeDown").onclick=()=>moveSelected(0,5);document.getElementById("nudgeLeft").onclick=()=>moveSelected(-5,0);document.getElementById("nudgeRight").onclick=()=>moveSelected(5,0);
 document.addEventListener("keydown",e=>{if(!selectedPoint)return;if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.key)){e.preventDefault();const s=e.shiftKey?25:5;if(e.key==="ArrowUp")moveSelected(0,-s);if(e.key==="ArrowDown")moveSelected(0,s);if(e.key==="ArrowLeft")moveSelected(-s,0);if(e.key==="ArrowRight")moveSelected(s,0)}});
