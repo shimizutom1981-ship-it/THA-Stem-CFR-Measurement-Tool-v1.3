@@ -12,7 +12,8 @@ header{padding:14px 16px;font-weight:700;font-size:20px}.wrap{display:grid;grid-
 label{font-size:13px;color:var(--muted)}input,button{font:inherit}input[type=text],input[type=number]{width:100%;padding:9px;border-radius:8px;border:1px solid var(--line);background:#0b1220;color:white}
 button{padding:9px 11px;border:0;border-radius:8px;background:#334155;color:white;font-weight:600}button.primary{background:#0369a1}
 button.active{outline:2px solid var(--accent)}button:disabled{opacity:.45}.small{font-size:12px;color:var(--muted);line-height:1.5}
-#stageWrap{position:relative;overflow:hidden;background:#000;border-radius:10px;min-height:70vh;touch-action:none}
+#stageWrap{position:relative;overflow:auto;background:#000;border-radius:10px;min-height:70vh;touch-action:pan-x pan-y}
+#cv{transform-origin:top left}
 canvas{display:block;width:100%;height:auto;cursor:crosshair}
 table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}th,td{padding:6px;border-bottom:1px solid var(--line);text-align:right}th:first-child,td:first-child{text-align:left}
 .status{font-size:13px;padding:8px;background:#0b1220;border-radius:8px;margin-top:8px}
@@ -36,6 +37,7 @@ table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}th,td{pa
 <div class="row">
 <button id="cameraBtn" class="primary">カメラで撮影</button>
 <button id="galleryBtn">写真・ファイルから選択</button>
+<button id="zoomOutBtn">−</button><button id="zoomResetBtn">100%</button><button id="zoomInBtn">＋</button>
 <input id="cameraFile" type="file" accept="image/*" capture="environment" hidden>
 <input id="file" type="file" accept="image/*" hidden>
 </div>
@@ -84,6 +86,9 @@ const cv=document.getElementById('cv'),ctx=cv.getContext('2d'),file=document.get
 const statusEl=document.getElementById('status'), ltMm=document.getElementById('ltMm');
 const levels=[{name:"LT+2cm",mm:20},{name:"LT",mm:0},{name:"LT-2cm",mm:-20},{name:"LT-7cm",mm:-70}];
 let img=new Image(), mode=null, ltPts=[], d7Pts=[], scale=null, axis=null, levelCenters=[], measurements={}, seq=[], dragging=-1, ciCenter=null, ciMeasure={D:null,M:null}, ciMode=null, ciTemp=[];
+let zoom=1, dragPoint=null;
+function applyZoom(){cv.style.width=(zoom*100)+"%";cv.style.height="auto";document.getElementById("zoomResetBtn").textContent=Math.round(zoom*100)+"%";}
+function setZoom(z){zoom=Math.max(1,Math.min(4,z));applyZoom();}
 function dist(a,b){return Math.hypot(a.x-b.x,a.y-b.y)}
 function mid(a,b){return{x:(a.x+b.x)/2,y:(a.y+b.y)/2}}
 function canvasPoint(e){const r=cv.getBoundingClientRect();return{x:(e.clientX-r.left)*cv.width/r.width,y:(e.clientY-r.top)*cv.height/r.height}}
@@ -121,6 +126,9 @@ function loadImageFile(f){
 }
 document.getElementById('cameraBtn').onclick=()=>cameraFile.click();
 document.getElementById('galleryBtn').onclick=()=>file.click();
+document.getElementById('zoomInBtn').onclick=()=>setZoom(zoom+0.5);
+document.getElementById('zoomOutBtn').onclick=()=>setZoom(zoom-0.5);
+document.getElementById('zoomResetBtn').onclick=()=>setZoom(1);
 cameraFile.onchange=e=>loadImageFile(e.target.files[0]);
 file.onchange=e=>loadImageFile(e.target.files[0]);
 document.getElementById('ltBtn').onclick=()=>{mode="lt";ltPts=[];statusEl.textContent="LTレベルの左右endosteal cortexを2点クリック。"}
@@ -135,6 +143,17 @@ document.getElementById("ciResetBtn").onclick=()=>{ciMeasure={D:null,M:null};ciM
 function projectToCILine(p){if(!axis||!ciCenter)return p;let n={x:-axis.v.y,y:axis.v.x};let t=(p.x-ciCenter.x)*n.x+(p.y-ciCenter.y)*n.y;return{x:ciCenter.x+n.x*t,y:ciCenter.y+n.y*t}}
 cv.addEventListener('pointerdown',e=>{
  let p=canvasPoint(e);
+ if(!mode&&!measuring&&!ciMode){
+   const hitRadius=Math.max(18,cv.width/70)/zoom;
+   const candidates=[];
+   ltPts.forEach((q,j)=>candidates.push({q,type:"lt",j}));
+   d7Pts.forEach((q,j)=>candidates.push({q,type:"d7",j}));
+   Object.entries(measurements).forEach(([i,m])=>["canal","stem"].forEach(k=>{if(m[k])m[k].forEach((q,j)=>candidates.push({q,type:"measure",i:+i,k,j}))}));
+   ["D","M"].forEach(k=>{if(ciMeasure[k])ciMeasure[k].forEach((q,j)=>candidates.push({q,type:"ci",k,j}))});
+   let best=null,bd=Infinity; for(const x of candidates){let d=dist(p,x.q);if(d<bd){bd=d;best=x}}
+   if(best&&bd<hitRadius){dragPoint=best;cv.setPointerCapture(e.pointerId);return}
+ }
+
  if(ciMode){p=projectToCILine(p);ciTemp.push(p);if(ciTemp.length===2){ciMeasure[ciMode]=[...ciTemp];ciTemp=[];if(ciMode==="D"){ciMode="M";statusEl.textContent="CI −10cm: 髄腔内径Mの両端を2点クリック";}else{ciMode=null;statusEl.textContent="CI測定が完了しました。";document.getElementById("csvBtn").disabled=false;document.getElementById("pngBtn").disabled=false;}updateCI();draw();}return}
  if(mode==="lt"){ltPts.push(p);if(ltPts.length===2){mode=null;updateScale();statusEl.textContent="LT幅(mm)を入力後、−7cmの左右皮質を指定してください。"}draw();return}
  if(mode==="d7"){d7Pts.push(p);if(d7Pts.length===2){mode=null;computeAxis()}draw();return}
@@ -150,8 +169,18 @@ cv.addEventListener('pointerdown',e=>{
  }
  if(axis){for(let i=0;i<levelCenters.length;i++)if(dist(p,levelCenters[i])<25){dragging=i;cv.setPointerCapture(e.pointerId);break}}
 });
-cv.addEventListener('pointermove',e=>{if(dragging<0)return;let p=canvasPoint(e);levelCenters[dragging]=p;draw()});
-cv.addEventListener('pointerup',()=>dragging=-1);
+cv.addEventListener('pointermove',e=>{
+ let p=canvasPoint(e);
+ if(dragPoint){
+   if(dragPoint.type==="lt"){ltPts[dragPoint.j]=p;updateScale();}
+   else if(dragPoint.type==="d7"){d7Pts[dragPoint.j]=p;computeAxis();}
+   else if(dragPoint.type==="measure"){measurements[dragPoint.i][dragPoint.k][dragPoint.j]=p;updateTable();}
+   else if(dragPoint.type==="ci"){p=projectToCILine(p);ciMeasure[dragPoint.k][dragPoint.j]=p;updateCI();}
+   draw(); return;
+ }
+ if(dragging<0)return;levelCenters[dragging]=p;draw()
+});
+cv.addEventListener('pointerup',()=>{dragging=-1;dragPoint=null});
 function updateTable(){
  let tb=document.getElementById('tbody');tb.innerHTML="";
  levels.forEach((l,i)=>{let m=measurements[i]||{},c=m.canal?dist(...m.canal):null,s=m.stem?dist(...m.stem):null,r=c&&s?100*s/c:null;
@@ -190,6 +219,6 @@ document.getElementById("dorrClear").onclick=()=>{
  document.querySelectorAll(".dorrBtn").forEach(x=>x.classList.remove("active"));
 };
 
-updateTable();updateCI();
+updateTable();updateCI();applyZoom();
 </script>
 </body></html>
